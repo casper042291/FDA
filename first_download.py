@@ -110,7 +110,7 @@ for url in download_urls:
   original_paths.append(fname)
 
 
-# 非同步批次解壓＋讀 CSV：對 to_async_urls 進行處理
+
 def extract_csv_from_zip(zip_bytes):
     dfs = []
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
@@ -146,7 +146,6 @@ async def main_async(url_list):
             all_dfs.extend(dfs)
     return all_dfs
 
-# (8) 執行非同步合併與 pivot，並寫成 pickle 檔
 async def run_all():
     all_dfs = await main_async(download_urls)
 
@@ -204,7 +203,7 @@ async def run_all():
             except Exception as e:
                 print(f"{indicator} 無法讀取或合併舊的 pickle 檔 ({out_path})：{e}")
         else:
-            # 如果不存在，先把新的 pivot_df（已排序）寫成 pickle
+            
             with open(out_path, "wb") as f:
                 pickle.dump(pivot_df, f)
             print(f"{indicator} 檔案不存在，已新建 pickle：{out_path}")
@@ -218,4 +217,5 @@ if __name__ == "__main__":
 print("所有原始檔名：", original_paths)
 
 with open("original_paths.pkl", "wb") as f:
+
     pickle.dump(original_paths, f)
