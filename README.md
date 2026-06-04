@@ -18,7 +18,11 @@ Next **72 hours** of PM2.5 concentration (via oracle rolling: 3 × 24h)
 
 **Stations**
 
-74 stations across Taiwan (excluding Kinmen/Matsu)
+72 stations across Taiwan (excluding Kinmen/Matsu)
+
+Train : 2018-01-01 ~　2024-12-31
+
+Test : 2025-01-01 ~ 2025-11-30
 
 ---
 
