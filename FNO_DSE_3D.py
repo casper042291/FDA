@@ -1,6 +1,6 @@
 # 不預測氣象變數 
 # 做rolling
-# MAE|   RMSE|   R SQUARE|  |
+
 import pandas as pd
 import numpy as np
 import torch
@@ -14,9 +14,7 @@ from sklearn.metrics import r2_score
 
 warnings.filterwarnings('ignore')
 
-# ==============================================================================
-# 0. 檔案路徑設定
-# ==============================================================================
+
 fpca_pm25_file = "/home/casper/air/fda_class/FPCA_PM25_format_all.csv"
 raw_pm25_file  = "/home/casper/air/fda_class/merged_reshaped_PM2.5.csv"
 station_file   = "/home/casper/air/空間/測站經緯度.csv"
@@ -29,9 +27,7 @@ weather_files = {
 }
 
 
-# ==============================================================================
-# 1. 核心模組
-# ==============================================================================
+
 
 class GaussianFourierFeatureTransform(nn.Module):
     def __init__(self, mapping_size=64, scale=10):
@@ -57,9 +53,7 @@ class SimpleMixer(nn.Module):
         return self.net(self.norm(x))
 
 
-# ==============================================================================
-# 2. VFT3D
-# ==============================================================================
+
 
 class VFT3D:
     def __init__(self, x_positions, y_positions, modes_s, modes_t, T):
@@ -129,9 +123,7 @@ class VFT3D:
         return d_t / (self.T * self.Ks)
 
 
-# ==============================================================================
-# 3. SpectralConv3d_dse
-# ==============================================================================
+
 
 class SpectralConv3d_dse(nn.Module):
     def __init__(self, in_channels, out_channels, modes_s, modes_t):
@@ -169,7 +161,7 @@ class SpectralConv3d_dse(nn.Module):
         return x_out.permute(0, 3, 1, 2).real
 
 
-# 4. FNO_3D 主模型
+# FNO_3D 主模型
 
 
 class FNO_3D(nn.Module):
@@ -230,9 +222,7 @@ class FNO_3D(nn.Module):
         return last_obs.unsqueeze(-1) + delta
 
 
-# ==============================================================================
-# 5. 滾動預測函式
-# ==============================================================================
+
 
 def rolling_predict_72h(model, x_init, weather_obs, coords, device,
                         y_mean=None, y_std=None, denorm=False):
@@ -258,12 +248,7 @@ def rolling_predict_72h(model, x_init, weather_obs, coords, device,
     return pred_72h
 
 
-# ==============================================================================
-# 6. 資料處理
-#
-#    ★ 改動：create_sequences_3d 新增 raw_pm25_df 參數
-#      測試集傳入原始 PM2.5，切出與 X 時間窗對齊的真實 Y_raw（含 NaN）
-# ==============================================================================
+
 
 def create_sequences_3d(data_dict, station_names,
                         input_hours=24, output_hours=72, stride=24,
@@ -481,9 +466,7 @@ def load_and_split_data(fpca_file, raw_file, station_file, weather_files):
     }
 
 
-# ==============================================================================
-# 7. 訓練用的滾動 loss
-# ==============================================================================
+
 
 def rolling_train_loss(model, bx, bx_wx, by_3seg, coords):
     total_loss = 0.0
@@ -501,9 +484,7 @@ def rolling_train_loss(model, bx, bx_wx, by_3seg, coords):
     return total_loss / 3.0
 
 
-# ==============================================================================
-# 8. 主程式
-# ==============================================================================
+
 
 if __name__ == "__main__":
     if not os.path.exists(fpca_pm25_file):
@@ -587,11 +568,13 @@ if __name__ == "__main__":
     # ==========================================================================
     # 測試集評估（滾動72小時）
     #
-    # ★ 改動：
+    # ★ 評估口徑：中央論文方法（per-hour pooled）
     #   1. 對比原始 PM2.5 真實值（Y_test_raw），NaN 點跳過
-    #   2. 先算每個測站的 RMSE / MAE / R²，最後再對所有測站取平均
+    #   2. 每個「提前小時」h 跨所有測站 × 所有樣本池化算 RMSE / MAE，
+    #      再對該段（72h 或各天）的提前小時取平均。（先小時、後平均）
+    #   3. 另附「先各站再平均」作為參考對照
     # ==========================================================================
-    print("\n=== 測試集評估（滾動72小時，對比原始 PM2.5，NaN 跳過）===")
+    print("\n=== 測試集評估（滾動72小時，中央論文 per-hour pooled，NaN 跳過）===")
     model.eval()
 
     if test_loader:
@@ -615,82 +598,69 @@ if __name__ == "__main__":
         station_names = data['station_names']
         N_sta = P.shape[1]
 
-        # ── 每個測站各自計算指標 ──────────────────────────────────────────
-        sta_rmse_list = []
-        sta_mae_list  = []
-        sta_r2_list   = []
+        # ======================================================================
+        # [主要] 中央論文方法（per-hour pooled）：
+        #   每個「提前小時」h，跨「所有測站 × 所有樣本」池化算 RMSE / MAE，
+        #   再對該段（72h 或各天）的提前小時取平均。（先小時、後平均）
+        # ======================================================================
+        def paper_metric(pred, true, metric='rmse', seg=None):
+            s, e = (0, 72) if seg is None else seg
+            vals = []
+            for h in range(s, e):
+                m = ~np.isnan(true[:, :, h]) & ~np.isnan(pred[:, :, h])
+                if m.sum() < 2:
+                    continue
+                d = pred[:, :, h][m] - true[:, :, h][m]
+                vals.append(np.sqrt(np.mean(d ** 2)) if metric == 'rmse'
+                            else np.mean(np.abs(d)))
+            return float(np.mean(vals)) if vals else float('nan')
 
-        for n in range(N_sta):
-            p_n = P[:, n, :]          # [S, 72]
-            t_n = T_true[:, n, :]    # [S, 72]
-            m_n = ~np.isnan(t_n)     # ★ NaN 跳過
-
-            if m_n.sum() < 2:        # 有效點不足，跳過此站
-                continue
-
-            p_valid = p_n[m_n]
-            t_valid = t_n[m_n]
-
-            sta_rmse = np.sqrt(np.mean((p_valid - t_valid) ** 2))
-            sta_mae  = np.mean(np.abs(p_valid - t_valid))
-            sta_r2   = r2_score(t_valid, p_valid) if np.var(t_valid) > 1e-8 \
-                       else float('nan')
-
-            sta_rmse_list.append(sta_rmse)
-            sta_mae_list.append(sta_mae)
-            sta_r2_list.append(sta_r2)
-
-        valid_sta_rmse = [v for v in sta_rmse_list if not np.isnan(v)]
-        valid_sta_mae  = [v for v in sta_mae_list  if not np.isnan(v)]
-        valid_sta_r2   = [v for v in sta_r2_list   if not np.isnan(v)]
-
-        avg_rmse = np.mean(valid_sta_rmse) if valid_sta_rmse else float('nan')
-        avg_mae  = np.mean(valid_sta_mae)  if valid_sta_mae  else float('nan')
-        avg_r2   = np.mean(valid_sta_r2)   if valid_sta_r2   else float('nan')
-
-        # 整體有效點數
         mask_all    = ~np.isnan(T_true)
         valid_total = mask_all.sum()
 
-        print(f"\n有效評估點：{valid_total:,}（NaN 跳過），有效測站數：{len(valid_sta_rmse)}/{N_sta}")
+        paper_rmse = paper_metric(P, T_true, 'rmse')
+        paper_mae  = paper_metric(P, T_true, 'mae')
+
+        print(f"\n有效評估點：{valid_total:,}（NaN 跳過），測站數：{N_sta}")
         print(f"\n{'='*55}")
-        print(f"  三天整體 — 先算各測站再取平均（對比原始 PM2.5）")
-        print(f"  RMSE: {avg_rmse:.4f}  MAE: {avg_mae:.4f}  R²: {avg_r2:.4f}")
+        print(f"  三天整體 — 中央論文方法（per-hour pooled，72h 均值）")
+        print(f"  RMSE: {paper_rmse:.4f}  MAE: {paper_mae:.4f}")
         print(f"{'='*55}")
 
-        # ── 分天評估（同樣先各站再平均）────────────────────────────────
-        print("\n[每天分段評估（各測站分開算，最後平均）]")
+        print("\n[每天分段評估（中央論文方法：每提前小時池化，再對該日 24h 平均）]")
         for s, e, label in [
             (0,  24, '第1天 (+01h~+24h)'),
             (24, 48, '第2天 (+25h~+48h)'),
             (48, 72, '第3天 (+49h~+72h)')
         ]:
-            day_rmse, day_mae, day_r2 = [], [], []
-
-            for n in range(N_sta):
-                p_n = P[:, n, s:e]
-                t_n = T_true[:, n, s:e]
-                m_n = ~np.isnan(t_n)
-
-                if m_n.sum() < 2:
-                    continue
-
-                p_v = p_n[m_n]
-                t_v = t_n[m_n]
-                day_rmse.append(np.sqrt(np.mean((p_v - t_v) ** 2)))
-                day_mae.append(np.mean(np.abs(p_v - t_v)))
-                if np.var(t_v) > 1e-8:
-                    day_r2.append(r2_score(t_v, p_v))
-
-            if not day_rmse:
+            d_rmse = paper_metric(P, T_true, 'rmse', seg=(s, e))
+            d_mae  = paper_metric(P, T_true, 'mae',  seg=(s, e))
+            if np.isnan(d_rmse):
                 print(f"  {label}  （無有效資料）")
                 continue
+            print(f"  {label}  RMSE: {d_rmse:.4f}  MAE: {d_mae:.4f}")
 
-            print(f"  {label}  "
-                  f"RMSE: {np.mean(day_rmse):.4f}  "
-                  f"MAE: {np.mean(day_mae):.4f}  "
-                  f"R²: {np.mean(day_r2) if day_r2 else float('nan'):.4f}  "
-                  f"(有效站數={len(day_rmse)})")
+        # ======================================================================
+        # [參考] 先算各測站再取平均（每站等權）—— 與中央方法的差異對照用
+        # ======================================================================
+        sta_rmse_list, sta_mae_list, sta_r2_list = [], [], []
+        for n in range(N_sta):
+            t_n = T_true[:, n, :]
+            m_n = ~np.isnan(t_n)
+            if m_n.sum() < 2:
+                continue
+            p_valid = P[:, n, :][m_n]
+            t_valid = t_n[m_n]
+            sta_rmse_list.append(np.sqrt(np.mean((p_valid - t_valid) ** 2)))
+            sta_mae_list.append(np.mean(np.abs(p_valid - t_valid)))
+            if np.var(t_valid) > 1e-8:
+                sta_r2_list.append(r2_score(t_valid, p_valid))
+
+        avg_rmse = np.mean(sta_rmse_list) if sta_rmse_list else float('nan')
+        avg_mae  = np.mean(sta_mae_list)  if sta_mae_list  else float('nan')
+        avg_r2   = np.mean(sta_r2_list)   if sta_r2_list   else float('nan')
+        print(f"\n[參考] 先站後平均（每站等權，有效站數 {len(sta_rmse_list)}/{N_sta}）")
+        print(f"  RMSE: {avg_rmse:.4f}  MAE: {avg_mae:.4f}  R²: {avg_r2:.4f}")
 
     else:
         print("沒有測試資料，跳過評估")
