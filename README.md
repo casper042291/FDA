@@ -77,62 +77,51 @@ The FPCA precomputation itself is done via R `fdapace::FPCA` in `空品pffr_ffpc
 
 ## 4. Model (`FNO_DSE_3D.py`)
 
-**FNO 3D** (Fourier Neural Operator with variable-splitting time dimension) + oracle rolling.
+**FNO-DSE-3D** — a coordinate-based non-uniform spectral neural operator for 72-hour PM2.5 forecasting (final thesis early-stop version; identical to `model/fno_dse_3d_earlystop.py`).
 
 **Architecture:**
 
 ```
-Input  [B, 74, 24, 5]  (PM2.5 + 4 weather variables, 24h history)
+Input  [B, 72 stations, 96h, 2ch]   (24h past PM2.5 obs + 72h CAMS forecast on one 96-h axis;
+                                     channels = PM2.5 + obs/forecast mask)
   │
-  ├─ Gaussian Fourier Feature Transform (coords → 64-dim)
-  ├─ TimeEncoder (hour/dow/month embedding → 48-dim)
-  ├─ fc0: Linear(117 → 64) ──→ [B, 64, 74, 24]
-  │
-  ├─ 4× SpectralConv3D_dse + SimpleMixer (Fourier layers)
-  │   ├─ VFT (non-uniform spatial FFT) + temporal FFT
-  │   ├─ Complex spectral multiplication (modes_s=16, modes_t=6)
-  │   └─ Residual SimpleMixer (Conv2d k=1)
-  │
-  ├─ fc1: Linear(1536 → 128)
-  ├─ fc2: Linear(128 → 24) + residual (last_obs)
-  └─ Oracle rolling × 3 → [B, 74, 72]
+  ├─ Gaussian Fourier Feature Transform (station coords → 64-dim)
+  ├─ TimeEncoder (hour / day-of-week / month embedding → 48-dim)
+  ├─ fc0 → width
+  ├─ 4× SpectralConv3D  (VFT non-uniform spatial FFT + temporal FFT) + residual mixer
+  ├─ aux-MLP de-biasing head  +  CAMS residual anchor with a learnable gate
+  └─ output → [B, 72 stations, 72h]   (direct 72h; no rolling)
 ```
 
-**Key features:**
-- **Log-transform**: `log1p(PM2.5)` in, `expm1` out (mitigates high-concentration underestimation)
-- **Time embedding**: hour-of-day / day-of-week / month learnable embeddings
-- **GFF spatial encoding**: Random Fourier features for station coordinates (scale=10)
-- **SpectralConv3D**: Variable-splitting time dimension + non-uniform spatial FFT
-- **Oracle rolling**: Uses future known weather variables as oracle input during 3-step rolling
+**Key settings:**
+- `log1p(PM2.5)` in / `expm1` out
+- CAMS as a **learnable-gated residual anchor** (nearest-grid-point interpolation)
+- **Time-series 10% validation split + early stopping** (patience=100), fixed `SEED=42`
+- Test-set RMSE = **6.5003** μg/m³
 
-> Note: this root-level `FNO_DSE_3D.py` is the earlier weather-driven rolling version (5 variables, no CAMS, no early stopping). The **final thesis versions** (CAMS-anchored, early-stop) are in [`model/`](model/) — see §6.
+Identical to `model/fno_dse_3d_earlystop.py`; for the full model set and thesis mapping see [`model/README.md`](model/README.md).
 
 ---
 
 ## 4b. Baseline (`cnn_baseline.py`)
 
-CNN-BASE style baseline (reference: Lee et al. 2024, *Atmospheric Environment*):
+CNN baseline (Lee et al. 2024 style) — **unified-protocol + Fourier-coordinate** variant, the main cross-architecture comparison in the thesis (identical to `model/CNN_WITH_FOURIER_EMBEDDING/cnn_fno_setting_fourier_earlystop.py`).
 
-- PM2.5 path: 1D-Conv (16 filters, kernel 3) × 2
-- Weather path: 1D-Conv (32 filters, kernel 3) × 3
-- Auxiliary: lat/lon
-- FC: 108 → 72 → 72 → 72 (ReLU)
-- Direct 72h output (no rolling)
-- Early stopping patience=10
+- Observation path: 1D-Conv (16, k=3) × 2;  CAMS path: 1D-Conv (32, k=3) × 3
+- Time embedding + **Fourier station-coordinate features (64-dim, same encoding as FNO-DSE-3D)**
+- FC: 108 → 72 → 72;  direct 72h output (no rolling)
+- **Unified protocol** (log1p+z-score, masked Huber, AdamW+StepLR, time-series validation + early stopping), nearest CAMS, `SEED=42`
+- Test-set RMSE = **6.7733** μg/m³
 
-**Differences from original paper:**
-1. No CMAQ forecast inputs
-2. No SWP weather type / land use index
-3. Input length 24h (consistent with `FNO_DSE_3D.py`)
-4. Direct 72h output (non-autoregressive)
+The other three CNN variants (raw coordinates / reference-baseline protocol) are in [`model/`](model/) — see [`model/README.md`](model/README.md).
 
 ---
 
 ## 5. Reproduce
 
 ```bash
-python FNO_DSE_3D.py          # FNO 3D main model (root; earlier rolling version)
-python cnn_baseline.py        # CNN baseline
+python FNO_DSE_3D.py     # FNO-DSE-3D main model (early-stop; test RMSE 6.5003)
+python cnn_baseline.py   # CNN baseline (unified + Fourier; test RMSE 6.7733)
 ```
 
 FPCA preprocessing requires `fill_nan_with_fpca.py` (Python) and `空品pffr_ffpc_all.ipynb` (R + `fdapace` for initial FPCA computation).
@@ -145,7 +134,9 @@ Requires PyTorch (CUDA optional), pandas, numpy, scikit-learn.
 
 The scripts in **[`model/`](model/)** are the **final versions used in the thesis** — trained with a
 **time-series validation split + early stopping**, **nearest-grid-point CAMS**, and fixed `SEED=42`.
-They supersede the root-level `FNO_DSE_3D.py` / `cnn_baseline.py` for the reported results.
+The root-level `FNO_DSE_3D.py` / `cnn_baseline.py` are copies of the two main scripts here
+(`fno_dse_3d_earlystop.py` and `CNN_WITH_FOURIER_EMBEDDING/cnn_fno_setting_fourier_earlystop.py`);
+this folder additionally provides the FNO-1D, weather-ablation, and all four CNN variants.
 
 | Script | Role | Test RMSE (μg/m³) |
 |---|---|---|
