@@ -75,7 +75,7 @@ The FPCA precomputation itself is done via R `fdapace::FPCA` in `空品pffr_ffpc
 
 ---
 
-## 4. Model (`fno_dse_3d_v7.py`)
+## 4. Model (`FNO_DSE_3D.py`)
 
 **FNO 3D** (Fourier Neural Operator with variable-splitting time dimension) + oracle rolling.
 
@@ -105,7 +105,7 @@ Input  [B, 74, 24, 5]  (PM2.5 + 4 weather variables, 24h history)
 - **SpectralConv3D**: Variable-splitting time dimension + non-uniform spatial FFT
 - **Oracle rolling**: Uses future known weather variables as oracle input during 3-step rolling
 
-See `fno_v7架構.md` for full architectural details.
+> Note: this root-level `FNO_DSE_3D.py` is the earlier weather-driven rolling version (5 variables, no CAMS, no early stopping). The **final thesis versions** (CAMS-anchored, early-stop) are in [`model/`](model/) — see §6.
 
 ---
 
@@ -123,7 +123,7 @@ CNN-BASE style baseline (reference: Lee et al. 2024, *Atmospheric Environment*):
 **Differences from original paper:**
 1. No CMAQ forecast inputs
 2. No SWP weather type / land use index
-3. Input length 24h (consistent with FNO v7)
+3. Input length 24h (consistent with `FNO_DSE_3D.py`)
 4. Direct 72h output (non-autoregressive)
 
 ---
@@ -131,7 +131,7 @@ CNN-BASE style baseline (reference: Lee et al. 2024, *Atmospheric Environment*):
 ## 5. Reproduce
 
 ```bash
-python fno_dse_3d_v7.py       # FNO 3D main model
+python FNO_DSE_3D.py          # FNO 3D main model (root; earlier rolling version)
 python cnn_baseline.py        # CNN baseline
 ```
 
