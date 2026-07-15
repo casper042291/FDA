@@ -4,6 +4,8 @@ FNO 3D (Fourier Neural Operator)-based **72-hour PM2.5 forecasting** for Taiwan 
 
 This repo contains the **data**, **FPCA imputation method**, **FNO 3D model**, and **CNN baseline** for reproducing the results.
 
+> 📁 **[`model/`](model/)** contains the **final thesis "early-stop" model scripts** (FNO-DSE-3D main model, FNO-1D spatial-coupling ablation, four CNN baseline variants, weather ablation, and FPCA preprocessing), with a per-file mapping to the thesis experiments/tables — see **[`model/README.md`](model/README.md)**.
+
 ---
 
 ## 1. Task
@@ -129,3 +131,24 @@ python cnn_baseline.py        # CNN baseline
 FPCA preprocessing requires `fill_nan_with_fpca.py` (Python) and `空品pffr_ffpc_all.ipynb` (R + `fdapace` for initial FPCA computation).
 
 Requires PyTorch (CUDA optional), pandas, numpy, scikit-learn.
+
+---
+
+## 6. Final thesis scripts — early-stop versions (`model/`)
+
+The scripts in **[`model/`](model/)** are the **final versions used in the thesis** — trained with a
+**time-series validation split + early stopping**, **nearest-grid-point CAMS**, and fixed `SEED=42`.
+They supersede the root-level `FNO_DSE_3D.py` / `cnn_baseline.py` for the reported results.
+
+| Script | Role | Test RMSE (μg/m³) |
+|---|---|---|
+| `model/fno_dse_3d_earlystop.py` | **FNO-DSE-3D main model** (3D spatio-temporal coupling) | **6.5003** |
+| `model/fno_1d_earlystop.py` | Spatial-coupling ablation (per-station 1D) | 6.6834 |
+| `model/fno_dse_3d_weather24_earlystop.py` | Weather ablation: + past 24h weather | 6.5704 |
+| `model/fno_dse_3d_weather72_earlystop.py` | Weather ablation: + true future weather (oracle) | 6.0826 |
+| `model/CNN_WITH_FOURIER_EMBEDDING/…` | CNN baselines, Fourier coords (2 protocols) | 6.7733 / 7.1909 |
+| `model/CNN_WITHOUT_FOURIER EMBEDDING/…` | CNN baselines, raw coords (2 protocols) | 6.8063 / 7.5135 |
+| `model/fpca/fdapace_all_DenseWithMV.R` | FPCA missing-value reconstruction (R, `fdapace`) | — |
+
+See **[`model/README.md`](model/README.md)** for the full file-to-experiment mapping, the two training
+protocols (unified vs. reference-baseline), and common settings.
