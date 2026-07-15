@@ -12,11 +12,11 @@ This repo contains the **data**, **FPCA imputation method**, **FNO 3D model**, a
 
 **Input**
 
-Past **24 hours** × 5 variables (PM2.5, WIND_U, WIND_V, RH, AMB_TEMP) + station lat/lon + time features (hour, day-of-week, month)
+Past **24 hours** of PM2.5 observations + **72-hour CAMS forecast** (2 channels: PM2.5 + observation/forecast mask) + station lat/lon + time features (hour, day-of-week, month). *(Meteorology is used only in the weather-ablation models under `model/`.)*
 
 **Output**
 
-Next **72 hours** of PM2.5 concentration (via oracle rolling: 3 × 24h)
+Next **72 hours** of PM2.5 concentration (direct output)
 
 **Stations**
 
