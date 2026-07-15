@@ -30,6 +30,13 @@ Test : 2025-01-01 ~ 2025-11-30
 
 ## 2. Data
 
+### Data sources / download links
+
+- **Ground-station observations** — Taiwan Ministry of Environment (MOENV), National Air Quality Monitoring Network (historical data query):
+  <https://airtw.moenv.gov.tw/cht/Query/His_Data.aspx>
+- **CAMS global atmospheric-composition forecasts** — Copernicus Atmosphere Monitoring Service, Atmosphere Data Store (ADS):
+  <https://ads.atmosphere.copernicus.eu/datasets/cams-global-atmospheric-composition-forecasts?tab=overview>
+
 ```
 原始資料/                          # Raw station observations (one CSV per variable)
 ├── merged_reshaped_PM2.5.csv      # Raw PM2.5 (hourly, 2018~2025)
