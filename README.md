@@ -1,6 +1,6 @@
 # PM2.5 72hr Forecast (FNO 3D)
 
-FNO 3D (Fourier Neural Operator)-based **72-hour PM2.5 forecasting** for Taiwan air-quality monitoring stations (74 stations, pure observational data).
+FNO 3D (Fourier Neural Operator)-based **72-hour PM2.5 forecasting** for Taiwan air-quality monitoring stations (72 stations, pure observational data).
 
 This repo contains the **data**, **FPCA imputation method**, **FNO 3D model**, and **CNN baseline** for reproducing the results.
 
@@ -53,7 +53,7 @@ Test : 2025-01-01 ~ 2025-11-30
 ├── WIND_V.csv
 └── fill_nan_with_fpca.py         # FPCA imputation script
 
-測站經緯度.csv                     # Station coordinates (lon/lat for 74 stations)
+測站經緯度.csv                     # Station coordinates (lon/lat; 72 stations used after obs ∩ CAMS intersection)
 ```
 
 ### Missing-value handling: **raw-first, FPCA-fill**
