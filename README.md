@@ -79,7 +79,14 @@ The FPCA precomputation itself is done via R `fdapace::FPCA` in `空品pffr_ffpc
 
 **FNO-DSE-3D** — a coordinate-based non-uniform spectral neural operator for 72-hour PM2.5 forecasting (final thesis early-stop version; identical to `model/fno_dse_3d_earlystop.py`).
 
-**Architecture:**
+![FNO-DSE-3D architecture](figures/arch_fno_dse_3d.png)
+
+*Full data flow with tensor shapes. Blue = inputs, purple = coordinate/time encodings,
+green = the operator path, red = the CAMS residual gate, orange = output reconstruction.
+The two coloured side-paths (orange = CAMS anchor, green = last observation) feed the
+learnable gate that sets the residual baseline the operator corrects against.*
+
+**Architecture (text summary):**
 
 ```
 Input  [B, 72 stations, 96h, 2ch]   (24h past PM2.5 obs + 72h CAMS forecast on one 96-h axis;
@@ -100,6 +107,23 @@ Input  [B, 72 stations, 96h, 2ch]   (24h past PM2.5 obs + 72h CAMS forecast on o
 - Test-set RMSE = **6.5003** μg/m³
 
 Identical to `model/fno_dse_3d_earlystop.py`; for the full model set and thesis mapping see [`model/README.md`](model/README.md).
+
+### Results: RMSE by lead time
+
+All neural models sit far below the raw CAMS forecast across the full 72-hour horizon —
+CAMS runs at 12–28 μg/m³ while every learned model stays within roughly 4–9 μg/m³.
+
+![RMSE by lead time, all models](figures/rmse_curve_main.png)
+
+Because CAMS dominates the vertical scale above, the same curves are re-plotted with CAMS
+removed. On this scale FNO-DSE-3D sits at the lower edge of the neural models at every
+lead time — the margin over the CNN baselines is small in absolute terms (6.5003 vs
+6.7733) but consistent across the whole horizon rather than concentrated in early hours.
+
+![RMSE by lead time, CAMS excluded](figures/rmse_curve_main_nocams.png)
+
+Dotted vertical lines mark forecast-day boundaries (24 h / 48 h). Error grows with lead
+time for every model, as expected.
 
 ---
 
