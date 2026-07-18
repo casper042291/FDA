@@ -1,6 +1,6 @@
 # PM2.5 72hr Forecast (FNO 3D)
 
-FNO 3D (Fourier Neural Operator)-based **72-hour PM2.5 forecasting** for Taiwan air-quality monitoring stations (72 stations, pure observational data).
+FNO 3D (Fourier Neural Operator)-based **72-hour PM2.5 forecasting** for Taiwan air-quality monitoring stations (72 stations; ground observations + CAMS physical prior, **no meteorological inputs** in the main model).
 
 This repo contains the **data**, **FPCA imputation method**, **FNO 3D model**, and **CNN baseline** for reproducing the results.
 
