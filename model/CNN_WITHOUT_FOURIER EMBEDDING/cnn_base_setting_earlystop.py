@@ -19,10 +19,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 warnings.filterwarnings('ignore')
 
-# ==============================================================================
-# ★固定隨機種子（與 FNO 早停版一致 SEED=42）→ 結果可重現、消融比較公平
-#   ※本檔為「中央協定」版：其餘設定(隨機切驗證/MSE/min-max/Adam/patience=10)全部原樣保留，只加種子。
-# ==============================================================================
+
 import random
 SEED = 42
 random.seed(SEED)
@@ -31,9 +28,7 @@ torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 
 
-# ==============================================================================
-# 0. 設定
-# ==============================================================================
+
 INPUT_HOURS  = 24
 OUTPUT_HOURS = 72
 T_TOTAL      = INPUT_HOURS + OUTPUT_HOURS          # 96（時間 embedding 的長度）
@@ -46,9 +41,8 @@ station_file   = "測站經緯度 72.csv"
 cams_npz_file  = "CAMS_PM25_perinit_nearest.npz"
 
 
-# ==============================================================================
-# 1a. 時間 Encoder（★與 v9 fno_dse_3d_v9_camshead 完全相同）
-# ==============================================================================
+
+# 1a. 時間 Encoder
 class TimeEncoder(nn.Module):
     def __init__(self, embed_dim=16):
         super().__init__()
@@ -61,9 +55,9 @@ class TimeEncoder(nn.Module):
         return self.proj(emb)                       # [..., embed_dim*3]
 
 
-# ==============================================================================
+
 # 1b. 模型（觀測PM2.5-1DCNN + CAMS-1DCNN + 時間embedding + aux → FC）
-# ==============================================================================
+
 class CNN_CAMS_TIME(nn.Module):
     def __init__(self, T_obs=24, T_cams=72, t_total=96, n_aux=2, out_hours=72, time_embed_dim=16):
         super().__init__()
@@ -100,9 +94,8 @@ class CNN_CAMS_TIME(nn.Module):
         return self.fc(torch.cat(parts, dim=1))
 
 
-# ==============================================================================
+
 # 2. CAMS 載入（同 FNO_DSE_3D）
-# ==============================================================================
 def load_cams_anchor(npz_path, station_names):
     d = np.load(npz_path, allow_pickle=True)
     cams = d['pm25']; stns = list(d['stations'])
@@ -119,9 +112,8 @@ def cams_station_set(npz_path):
     return set(list(d['stations']))
 
 
-# ==============================================================================
-# 3. 序列建立（★無氣象；觀測24h + CAMS 72h + 目標72h + 時間96h，以 t0 對齊 CAMS）
-# ==============================================================================
+
+# 3. 序列建立（無氣象；觀測24h + CAMS 72h + 目標72h + 時間96h，以 t0 對齊 CAMS）
 def create_sequences(df_pm25, raw_pm25_df, cams_anc, cams_lookup, station_names,
                      input_hours=24, output_hours=72, stride=24):
     n_rows = len(df_pm25); n_sta = len(station_names)
@@ -167,9 +159,8 @@ def create_sequences(df_pm25, raw_pm25_df, cams_anc, cams_lookup, station_names,
     return Xobs[keep], Xcam[keep], Yfp[keep], Yraw[keep], Hh[keep], Dd[keep], Mm[keep], t0s
 
 
-# ==============================================================================
-# 4. 資料載入 / 切分（★無氣象;★中央論文式 min-max 正規化）
-# ==============================================================================
+
+# 4. 資料載入 / 切分（無氣象;★中央論文式 min-max 正規化）
 def _align(df, full_idx, common):
     df = df.drop_duplicates('datetime').set_index('datetime')[common].reindex(full_idx)
     for c in common:
@@ -319,9 +310,8 @@ def masked_se_sum(pred, target, mask):
     return se.sum(), mask.sum()
 
 
-# ==============================================================================
-# 5. 主程式（★中央設定:Adam + 10% 驗證 + early stop + 存 val 最佳）
-# ==============================================================================
+
+# 5. 主程式（中央設定:Adam + 10% 驗證 + early stop + 存 val 最佳）
 if __name__ == "__main__":
     if not os.path.exists(fpca_pm25_file):
         raise SystemExit(f"找不到檔案: {fpca_pm25_file}")
