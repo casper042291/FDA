@@ -11,26 +11,7 @@
 #   第3天 (+49~+72h)  模型 RMSE: 7.1056 MAE: 5.0942  |  CAMS RMSE: 20.3418
 
 # [參考] 先站後平均(有效站 72/72)  RMSE: 6.6490  MAE: 4.7579  R²: 0.4304
-# ============================================================
-#   fno_1d_perstation_cams_coordonly_2 — CAMS最近格點 + ★驗證集 Early Stopping 版
-# ============================================================
-#   ★本檔 = fno_1d_perstation_cams_coordonly_2_cams_nearest.py 再加上「驗證集 + early stopping」：
-#     [新增1] ★時間序切分驗證集★：訓練期(<2025)的序列本就按時間排序，取「最後 10%」
-#             （時間最新的一段）當驗證集，其餘 90%（時間較早）當訓練。這是預報問題的標準
-#             時間切分（用過去驗證、不碰未來），不洩漏測試集(2025)。
-#     [新增2] ★正規化統計只用訓練的 90% 計算★：避免驗證集分布洩漏進 log1p+z-score 的
-#             mean/std。
-#     [新增3] ★以「驗證 loss」存最佳 checkpoint + early stopping★：每個 epoch 算驗證集
-#             遮罩 Huber loss（與訓練同一個 masked_huber，NaN 用遮罩排除），只有驗證 loss
-#             創新低才存檔；若連續 PATIENCE(=100) 個 epoch 驗證 loss 都沒改善就提前停止。
-#             → 這是「合法的 early stopping」：選模型只看驗證集，測試集(2025)完全不參與。
-#     [評估] 訓練結束後載入「最佳驗證 checkpoint」對測試集(2025)評估，得到不偏的泛化表現。
-#
-#   ★與原本「固定 800 epoch、存 train loss 最佳」的差別：本檔會在驗證 loss 不再下降時停，
-#     取的是「泛化最佳」而非「訓練擬合最佳」的模型，用於緩解過擬合。
-#   ★CAMS 仍為最近格點（沿用 cams_npz_nearest_file）；模型架構、超參數與母本一致。
-#   ★checkpoint 用獨立檔名，不覆蓋其他版本。本檔尚未執行過，故無 RMSE 數值可附。
-# ──────────────────────────────────────────────────────────────────────────────
+
 import pandas as pd
 import numpy as np
 import torch
@@ -42,12 +23,7 @@ from sklearn.metrics import r2_score
 
 warnings.filterwarnings('ignore')
 
-# ==============================================================================
-# ★固定隨機種子（四支腳本一致 SEED=42）→ 結果可重現、消融比較公平
-#   涵蓋所有未固定來源：座標 random Fourier B、譜卷積/線性層權重初始化、DataLoader shuffle。
-#   ※GPU 上 FFT/複數運算不保證 bit-perfect 完全決定性；如需更嚴格可另加
-#     torch.backends.cudnn.deterministic=True（會略降速度）。
-# ==============================================================================
+
 import random
 SEED = 42
 random.seed(SEED)
@@ -55,9 +31,7 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 
-# ==============================================================================
-# 0. 檔案路徑 / 開關（★與 camshead_noweather 完全相同,讀同一份資料）
-# ==============================================================================
+
 fpca_pm25_file = "/home/casper/air/完整DATA2/用FPCA去補NAN的DATA/PM2.5.csv"
 raw_pm25_file  = "/home/casper/air/fda_class/merged_reshaped_PM2.5.csv"
 station_file   = "/home/casper/air/完整DATA2/測站經緯度72測站.csv"
@@ -75,14 +49,8 @@ PATIENCE = 100                   # 驗證 loss 連續 PATIENCE 個 epoch 未改�
 MAX_EPOCH = 800                  # 訓練 epoch 上限（早停通常會在此之前觸發）
 
 
-# ==============================================================================
+
 # 0b. CAMS 最近格點（Nearest-neighbor）建置 / 快取
-# ==============================================================================
-#   cams_npz_file          原本雙線性內插版的 CAMS 錨點 npz（僅供對照，本檔不使用）。
-#   cams_npz_nearest_file  ★本檔實際使用的「最近格點」版 CAMS 錨點 npz（會自動建置/快取）。
-#   cams_raw_nc_dir        原始 CAMS 網格 netCDF 月檔（cams_pm25_YYYYMM.nc）所在目錄。
-#   ★★建議做法★★：直接把本機預先建好、與 bilinear 完全同站同序(75站)的
-#     CAMS_PM25_perinit_nearest.npz 上傳到 cams_npz_nearest_file，即可跳過 fallback 重建。
 cams_npz_file          = "/home/casper/air/完整DATA2/cams/CAMS_PM25_perinit.npz"          # 原雙線性版（對照用，不使用）
 cams_npz_nearest_file  = "/home/casper/air/完整DATA2/cams/CAMS_PM25_perinit_nearest.npz"  # ★本檔實際使用
 cams_raw_nc_dir        = "/home/casper/air/完整DATA2/cams/12_00/pm25"                     # ★原始網格月檔目錄，請確認
@@ -155,9 +123,8 @@ def ensure_cams_nearest(raw_nc_dir, station_csv, out_npz, ref_npz):
         build_cams_nearest_npz(raw_nc_dir, station_csv, out_npz, ref_npz)
 
 
-# ==============================================================================
+
 # 1. 核心模組
-# ==============================================================================
 class GaussianFourierFeatureTransform(nn.Module):
     def __init__(self, mapping_size=64, scale=10):
         super().__init__()
@@ -192,9 +159,8 @@ class TimeEncoder(nn.Module):
         return self.proj(emb)
 
 
-# ==============================================================================
-# 2. ★ 逐站 1D 時間譜卷積（取代 3D VFT;無空間耦合）
-# ==============================================================================
+
+# 2.  逐站 1D 時間譜卷積（取代 3D VFT;無空間耦合）
 class SpectralConv1dTime(nn.Module):
     def __init__(self, in_channels, out_channels, modes_t):
         super().__init__()
@@ -215,9 +181,8 @@ class SpectralConv1dTime(nn.Module):
         return xo.reshape(B, N, self.out_channels, T).permute(0, 2, 1, 3)  # [B,out,N,T]
 
 
-# ==============================================================================
-# 3. FNO 主模型（★無空間耦合版）
-# ==============================================================================
+
+# 3. FNO 主模型
 class FNO_1D_NoSpatial(nn.Module):
     def __init__(self, in_ch=2, n_stations=77, t_total=96, out_hours=72,
                  modes_s=16, modes_t=12, width=64, time_embed_dim=16, station_embed_dim=16,
@@ -277,9 +242,8 @@ class FNO_1D_NoSpatial(nn.Module):
         return base + delta, delta
 
 
-# ==============================================================================
+
 # 4. CAMS 錨點載入
-# ==============================================================================
 def load_cams_anchor(npz_path, station_names):
     d = np.load(npz_path, allow_pickle=True)
     cams = d['pm25']; stns = list(d['stations'])
@@ -296,9 +260,8 @@ def cams_station_set(npz_path):
     return set(list(d['stations']))
 
 
-# ==============================================================================
+
 # 5. 序列建立 + 組 96 軸
-# ==============================================================================
 def create_sequences(data_dict, station_names, raw_pm25_df, cams_anc, cams_lookup,
                      t_past=24, t_fut=72, stride=24, align_t0_hour=0):
     ordered_keys = ['pm25'] + [k for k in data_dict if k != 'pm25']
@@ -360,9 +323,8 @@ def build_x96(Xpast_n_pm, A_norm):
     return torch.cat([x_vars, mask], dim=-1)
 
 
-# ==============================================================================
-# 6. 資料載入 / 切分（★訓練期再切「最後 10% 當驗證集」；正規化統計只用訓練 90%）
-# ==============================================================================
+
+# 6. 資料載入 / 切分（訓練期再切「最後 10% 當驗證集」；正規化統計只用訓練 90%）
 def load_and_split_data(fpca_file, raw_file, station_file, weather_files, cams_npz):
     print("--- [Step 1] 讀取數據(逐站1D,無氣象,CAMS最近格點,+驗證集early stopping)---")
     df_stations = pd.read_csv(station_file)
@@ -507,9 +469,8 @@ def masked_huber(pred, target, mask):
     return (loss_pt * m).sum() / m.sum().clamp(min=1.0)
 
 
-# ==============================================================================
-# 8. 主程式（★驗證集 early stopping：以驗證 loss 選最佳模型，測試集只做最終評估）
-# ==============================================================================
+
+# 8. 主程式（驗證集 early stopping：以驗證 loss 選最佳模型，測試集只做最終評估）
 if __name__ == "__main__":
     if not os.path.exists(fpca_pm25_file):
         sys.exit(f"找不到檔案: {fpca_pm25_file}")
