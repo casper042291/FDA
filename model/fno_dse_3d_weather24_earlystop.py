@@ -22,9 +22,7 @@ from sklearn.metrics import r2_score
 
 warnings.filterwarnings('ignore')
 
-# ==============================================================================
-# ★固定隨機種子（與其他早停版一致 SEED=42）→ 結果可重現、消融比較公平
-# ==============================================================================
+
 import random
 SEED = 42
 random.seed(SEED)
@@ -32,9 +30,7 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 
-# ==============================================================================
-# 0. 檔案路徑 / 開關
-# ==============================================================================
+
 cams_npz_file  = "/home/casper/air/完整DATA2/cams/CAMS_PM25_perinit.npz"
 fpca_pm25_file = "/home/casper/air/完整DATA2/用FPCA去補NAN的DATA/PM2.5.csv"
 raw_pm25_file  = "/home/casper/air/fda_class/merged_reshaped_PM2.5.csv"
@@ -57,9 +53,8 @@ PATIENCE = 100                   # 驗證 loss 連續 PATIENCE 個 epoch 未改�
 MAX_EPOCH = 800                  # 訓練 epoch 上限（早停通常會在此之前觸發）
 
 
-# ==============================================================================
+
 # 1. 核心模組
-# ==============================================================================
 class GaussianFourierFeatureTransform(nn.Module):
     """座標 random Fourier 特徵（B 為固定隨機高斯矩陣,不訓練）→ 可泛化到任意新座標。"""
     def __init__(self, mapping_size=64, scale=10):
@@ -91,9 +86,8 @@ class TimeEncoder(nn.Module):
         return self.proj(emb)
 
 
-# ==============================================================================
-# 2. VFT3D（與主模型完全相同）
-# ==============================================================================
+
+# 2. VFT3D（與主模型完全相同）=
 class VFT3D:
     def __init__(self, x_positions, y_positions, modes_s, modes_t, T):
         self.modes_s = modes_s; self.modes_t = modes_t; self.T = T
@@ -144,9 +138,7 @@ class VFT3D:
         return d_t / (self.T * self.Ks)
 
 
-# ==============================================================================
 # 3. SpectralConv3d_dse（與主模型完全相同）
-# ==============================================================================
 class SpectralConv3d_dse(nn.Module):
     def __init__(self, in_channels, out_channels, modes_s, modes_t):
         super().__init__()
@@ -176,9 +168,8 @@ class SpectralConv3d_dse(nn.Module):
         return x_out.permute(0, 3, 1, 2).real
 
 
-# ==============================================================================
-# 4. FNO_3D（★移除 station_emb;身分由座標 Fourier 承載 → 可預測未見測站）
-# ==============================================================================
+
+# 4. FNO_3D（移除 station_emb;身分由座標 Fourier 承載 → 可預測未見測站）
 class FNO_3D(nn.Module):
     def __init__(self, in_ch=2, n_stations=77, t_total=96, out_hours=72,
                  modes_s=16, modes_t=12, width=64, time_embed_dim=16, station_embed_dim=16,
@@ -245,9 +236,8 @@ class FNO_3D(nn.Module):
         return base + delta, delta
 
 
-# ==============================================================================
+
 # 5. CAMS 錨點載入
-# ==============================================================================
 def load_cams_anchor(npz_path, station_names):
     d = np.load(npz_path, allow_pickle=True)
     cams = d['pm25']; stns = list(d['stations'])
@@ -264,9 +254,8 @@ def cams_station_set(npz_path):
     return set(list(d['stations']))
 
 
-# ==============================================================================
-# 6. 序列建立（★無氣象;與主模型相同）
-# ==============================================================================
+
+# 6. 序列建立（無氣象;與主模型相同）
 def create_sequences(data_dict, station_names, raw_pm25_df, cams_anc, cams_lookup,
                      t_past=24, t_fut=72, stride=24, align_t0_hour=0):
     ordered_keys = ['pm25'] + [k for k in data_dict if k != 'pm25']
@@ -331,9 +320,7 @@ def build_x96(Xpast_n_pm, Xpast_n_wx, A_norm):
     return torch.cat([x_vars, mask], dim=-1)                    # [n,N,96,2+n_wx]
 
 
-# ==============================================================================
-# 7. 資料載入 / 切分（★無氣象;與主模型逐字一致）
-# ==============================================================================
+# 7. 資料載入 / 切分（無氣象;與主模型逐字一致）
 def load_and_split_data(fpca_file, raw_file, station_file, weather_files, cams_npz):
     print("--- [Step 1] 讀取數據(v9 camshead 無氣象 + 移除站嵌入 + 未見測站實驗)---")
     df_stations = pd.read_csv(station_file)
@@ -477,9 +464,8 @@ def masked_huber(pred, target, mask):
     return (loss_pt * m).sum() / m.sum().clamp(min=1.0)
 
 
-# ==============================================================================
-# 8. 主程式（★藏站訓練 / 對未見站評估）
-# ==============================================================================
+
+# 8. 主程式
 if __name__ == "__main__":
     if not os.path.exists(fpca_pm25_file):
         sys.exit(f"找不到檔案: {fpca_pm25_file}")
