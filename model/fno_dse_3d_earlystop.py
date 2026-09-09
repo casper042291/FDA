@@ -11,17 +11,7 @@
 #   第3天 (+49~+72h)  模型 RMSE: 6.9353 MAE: 5.0378  |  CAMS RMSE: 20.3418
 
 # [參考] 先站後平均(有效站 72/72)  RMSE: 6.4559  MAE: 4.6909  R²: 0.4653
-# ============================================================
-#   FNO_DSE_3D v9_unseen_2 — CAMS最近格點 + ★驗證集 Early Stopping 版
-# ============================================================
-#   ★本檔 = fno_dse_3d_v9_unseen_2_cams_nearest.py 再加上「驗證集 + early stopping」：
-#     [新增1] 時間序切分：訓練期(<2025)序列取「最後 10%」(時間最新)當驗證集，其餘 90% 當訓練。
-#     [新增2] 正規化統計只用訓練 90% 計算，避免驗證集洩漏進 log1p+z-score。
-#     [新增3] 以「驗證 loss」存最佳 checkpoint + early stopping：連續 PATIENCE(=100) 個 epoch
-#             驗證 loss 未改善就提前停止；測試集(2025)完全不參與選模型。
-#     [評估] 訓練結束載入「最佳驗證 checkpoint」對測試集(2025)評估，得不偏泛化表現。
-#   ★仍保留 segfault 續訓機制（resume），且續訓點會一併保存 early-stopping 狀態。
-#   ★本檔尚未執行過，故無 RMSE 數值可附。
+
 
 import pandas as pd
 import numpy as np
@@ -34,12 +24,7 @@ from sklearn.metrics import r2_score
 
 warnings.filterwarnings('ignore')
 
-# ==============================================================================
-# ★固定隨機種子（四支腳本一致 SEED=42）→ 結果可重現、消融比較公平
-#   涵蓋所有未固定來源：座標 random Fourier B、譜卷積/線性層權重初始化、DataLoader shuffle。
-#   ※GPU 上 FFT/複數運算不保證 bit-perfect 完全決定性；如需更嚴格可另加
-#     torch.backends.cudnn.deterministic=True（會略降速度）。
-# ==============================================================================
+
 import random
 SEED = 42
 random.seed(SEED)
@@ -47,9 +32,7 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 
-# ==============================================================================
-# 0. 檔案路徑 / 開關
-# ==============================================================================
+
 fpca_pm25_file = "/home/casper/air/完整DATA2/用FPCA去補NAN的DATA/PM2.5.csv"
 raw_pm25_file  = "/home/casper/air/fda_class/merged_reshaped_PM2.5.csv"
 station_file   = "/home/casper/air/完整DATA2/測站經緯度72測站.csv"
@@ -66,30 +49,9 @@ PATIENCE = 100                   # 驗證 loss 連續 PATIENCE 個 epoch 未改�
 MAX_EPOCH = 800                  # 訓練 epoch 上限（早停通常會在此之前觸發）
 
 
-# ==============================================================================
+
 # 0b. CAMS 最近格點（Nearest-neighbor）建置 / 快取
-# ==============================================================================
-# ★本區塊是本檔與 fno_dse_3d_v9_unseen_2.py 的唯一實質差異來源。
-#
-#   cams_npz_file          原本雙線性內插版的 CAMS 錨點 npz（僅供對照，本檔不使用）。
-#   cams_npz_nearest_file  ★本檔實際使用的「最近格點」版 CAMS 錨點 npz（會自動建置/快取）。
-#   cams_raw_nc_dir        原始 CAMS 網格 netCDF 月檔（cams_pm25_YYYYMM.nc）所在目錄。
-#
-#   流程：
-#     1. 若 cams_npz_nearest_file 已存在 → 直接讀取，後續與原檔完全相同（仍走
-#        load_cams_anchor()，因為輸出的 npz 結構刻意與原檔一致：pm25/stations/valid_local）。
-#        ★★建議做法★★：直接使用「已在本機預先建好、與 bilinear 完全同站同序(75站)」的
-#        CAMS_PM25_perinit_nearest.npz，把它上傳到 cams_npz_nearest_file 指的位置即可，
-#        訓練機就不需要原始網格月檔，也不會觸發下面第 2 步的 fallback 重建。
-#     2. 若不存在（fallback）→ 從 cams_raw_nc_dir 下的原始網格月檔重建，邏輯比照
-#        build_cams_pm25.py 的 build_perinit()，唯一差異是 .interp() 的 method 從
-#        預設 'linear'（雙線性）改成 'nearest'（最近格點）。
-#        ★為維持消融「唯一變因」原則，fallback 重建的測站清單與站序一律以 bilinear 錨點
-#          npz(cams_npz_file) 為準（而非 station_file），座標查自 station_file；若
-#          station_file 缺任一站座標 → 直接報錯中止，避免默默建出「站數不一致」的錯誤 npz。
-#
-#   ★cams_raw_nc_dir 只在 fallback 才會用到；若走建議做法(預建好 npz 上傳)則可忽略。
-#     目前確認只有 Windows 本機 D:\論文\claude\完整data\CAMS\12_00\pm25\*.nc 有原始月檔。
+
 cams_npz_file          = "/home/casper/air/完整DATA2/cams/CAMS_PM25_perinit.npz"          # 原雙線性版（對照用，不使用）
 cams_npz_nearest_file  = "/home/casper/air/完整DATA2/cams/CAMS_PM25_perinit_nearest.npz"  # ★本檔實際使用
 cams_raw_nc_dir        = "/home/casper/air/完整DATA2/cams/12_00/pm25"                     # ★原始網格月檔目錄，請確認
@@ -170,9 +132,8 @@ def ensure_cams_nearest(raw_nc_dir, station_csv, out_npz, ref_npz):
         build_cams_nearest_npz(raw_nc_dir, station_csv, out_npz, ref_npz)
 
 
-# ==============================================================================
+
 # 1. 核心模組
-# ==============================================================================
 class GaussianFourierFeatureTransform(nn.Module):
     """座標 random Fourier 特徵（B 為固定隨機高斯矩陣,不訓練）→ 可泛化到任意新座標。"""
     def __init__(self, mapping_size=64, scale=10):
@@ -204,9 +165,7 @@ class TimeEncoder(nn.Module):
         return self.proj(emb)
 
 
-# ==============================================================================
 # 2. VFT3D（與主模型完全相同）
-# ==============================================================================
 class VFT3D:
     def __init__(self, x_positions, y_positions, modes_s, modes_t, T):
         self.modes_s = modes_s; self.modes_t = modes_t; self.T = T
@@ -257,9 +216,8 @@ class VFT3D:
         return d_t / (self.T * self.Ks)
 
 
-# ==============================================================================
+
 # 3. SpectralConv3d_dse（與主模型完全相同）
-# ==============================================================================
 class SpectralConv3d_dse(nn.Module):
     def __init__(self, in_channels, out_channels, modes_s, modes_t):
         super().__init__()
@@ -289,9 +247,8 @@ class SpectralConv3d_dse(nn.Module):
         return x_out.permute(0, 3, 1, 2).real
 
 
-# ==============================================================================
+
 # 4. FNO_3D（★移除 station_emb;身分由座標 Fourier 承載 → 可預測未見測站）
-# ==============================================================================
 class FNO_3D(nn.Module):
     def __init__(self, in_ch=2, n_stations=77, t_total=96, out_hours=72,
                  modes_s=16, modes_t=12, width=64, time_embed_dim=16, station_embed_dim=16,
@@ -358,9 +315,8 @@ class FNO_3D(nn.Module):
         return base + delta, delta
 
 
-# ==============================================================================
+
 # 5. CAMS 錨點載入
-# ==============================================================================
 def load_cams_anchor(npz_path, station_names):
     d = np.load(npz_path, allow_pickle=True)
     cams = d['pm25']; stns = list(d['stations'])
@@ -377,9 +333,8 @@ def cams_station_set(npz_path):
     return set(list(d['stations']))
 
 
-# ==============================================================================
+
 # 6. 序列建立（★無氣象;與主模型相同）
-# ==============================================================================
 def create_sequences(data_dict, station_names, raw_pm25_df, cams_anc, cams_lookup,
                      t_past=24, t_fut=72, stride=24, align_t0_hour=0):
     ordered_keys = ['pm25'] + [k for k in data_dict if k != 'pm25']
@@ -441,9 +396,8 @@ def build_x96(Xpast_n_pm, A_norm):
     return torch.cat([x_vars, mask], dim=-1)
 
 
-# ==============================================================================
+
 # 7. 資料載入 / 切分（★無氣象;與主模型逐字一致）
-# ==============================================================================
 def load_and_split_data(fpca_file, raw_file, station_file, weather_files, cams_npz):
     print("--- [Step 1] 讀取數據(v9 camshead 無氣象 + 移除站嵌入 + 未見測站實驗 + CAMS最近格點)---")
     df_stations = pd.read_csv(station_file)
@@ -583,9 +537,8 @@ def masked_huber(pred, target, mask):
     return (loss_pt * m).sum() / m.sum().clamp(min=1.0)
 
 
-# ==============================================================================
-# 8. 主程式（★藏站訓練 / 對未見站評估）
-# ==============================================================================
+
+# 8. 主程式
 if __name__ == "__main__":
     if not os.path.exists(fpca_pm25_file):
         sys.exit(f"找不到檔案: {fpca_pm25_file}")
